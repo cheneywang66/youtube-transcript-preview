@@ -9,11 +9,12 @@ description: "Fetch YouTube transcripts with a free subtitle retrieval tool and 
 
 1. Decide the Markdown output directory before fetching any transcript.
    - If the user already provided a directory, use it.
-   - If the user did not provide a directory, create and use `youtube-transcript-preview/` under the current workspace.
-   - If the user explicitly asks to choose or confirm the directory first, pause and ask in Chinese:
+   - If the user did not provide a directory, pause before fetching and ask in Chinese:
 
      `请告诉我这些 Markdown 文件要保存到哪个目录？如果没有指定目录，我会默认保存到当前工作区下的 youtube-transcript-preview/ 文件夹。`
 
+   - If the user replies with a directory path, use that directory.
+   - If the user does not choose a directory, replies that the default is OK, or gives no specific path, create and use `youtube-transcript-preview/` under the current workspace.
    - Use the same chosen directory for the raw transcript and summary.
    - Do not fetch subtitles before this directory is decided.
    - Do not write to a random home directory.
