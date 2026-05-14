@@ -1,6 +1,6 @@
 ---
 name: youtube-transcript-preview
-description: Fetch YouTube transcripts with a free subtitle retrieval tool and create local Markdown files: one raw timestamped transcript and one timestamped Chinese preview summary. Retrieval depends on the current network environment and whether YouTube exposes captions for the video. Use when the user provides a YouTube link and asks to save, preview, judge, analyze, summarize, inspect, skim, or create notes from a video, especially when they want chapter-style Chinese notes with YouTube timestamp links.
+description: "Fetch YouTube transcripts with a free subtitle retrieval tool and create local Markdown files: one raw timestamped transcript and one timestamped Chinese preview summary. Retrieval depends on the current network environment and whether YouTube exposes captions for the video. Use when the user provides a YouTube link and asks to save, preview, judge, analyze, summarize, inspect, skim, or create notes from a video, especially when they want chapter-style Chinese notes with YouTube timestamp links."
 ---
 
 # YouTube Transcript Preview
