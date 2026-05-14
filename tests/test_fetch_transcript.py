@@ -1,5 +1,6 @@
 import contextlib
 import io
+import os
 import sys
 import tempfile
 import unittest
@@ -162,6 +163,91 @@ class FetchTranscriptTests(unittest.TestCase):
             fetch_transcript._parse_caption_payload(json_payload),
             [{"text": "hello world", "start": 1.2, "duration": 3.4}],
         )
+
+    def test_normalizes_youtube_transcript_io_object_track_response(self):
+        payload = [
+            {
+                "id": "abc12345678",
+                "title": "Example",
+                "tracks": [
+                    {
+                        "languageCode": "en",
+                        "languageName": "English",
+                        "isGenerated": True,
+                        "transcript": [
+                            {"text": "hello", "start": 1.2, "duration": 3.4},
+                            {"text": "world", "startMs": 5600, "durationMs": 1200},
+                        ],
+                    }
+                ],
+            }
+        ]
+
+        result = fetch_transcript._normalize_youtube_transcript_io_result(payload, "abc12345678")
+
+        self.assertEqual(result.language_code, "en")
+        self.assertEqual(result.language_name, "English")
+        self.assertTrue(result.is_generated)
+        self.assertEqual(result.selection, "youtube-transcript-io-preferred")
+        self.assertEqual(
+            result.transcript,
+            [
+                {"text": "hello", "start": 1.2, "duration": 3.4},
+                {"text": "world", "start": 5.6, "duration": 1.2},
+            ],
+        )
+
+    def test_normalizes_youtube_transcript_io_segment_array_track_response(self):
+        payload = {
+            "data": '[{"id":"abc12345678","tracks":[[{"text":"hello\\nworld","start":"00:01","duration":"2"}]]}]'
+        }
+
+        result = fetch_transcript._normalize_youtube_transcript_io_result(payload, "abc12345678")
+
+        self.assertEqual(result.language_code, "unknown")
+        self.assertEqual(result.selection, "youtube-transcript-io-fallback-any-language")
+        self.assertEqual(result.transcript, [{"text": "hello world", "start": 1.0, "duration": 2.0}])
+
+    def test_fetch_transcript_auto_uses_youtube_transcript_io_when_token_is_configured(self):
+        original_io = fetch_transcript.fetch_transcript_from_youtube_transcript_io
+        original_api = fetch_transcript.fetch_transcript_with_api
+
+        calls = []
+
+        try:
+            fetch_transcript.fetch_transcript_from_youtube_transcript_io = lambda *args, **kwargs: calls.append(
+                ("io", kwargs["api_token"])
+            ) or fetch_transcript.TranscriptResult(
+                language_code="en",
+                language_name="English",
+                is_generated=None,
+                selection="youtube-transcript-io-test",
+                transcript=[{"text": "hello", "start": 0, "duration": 1}],
+            )
+            fetch_transcript.fetch_transcript_with_api = lambda *args, **kwargs: calls.append(("api", ""))
+
+            result = fetch_transcript.fetch_transcript(
+                "abc12345678",
+                method="auto",
+                youtube_transcript_io_token="secret",
+            )
+
+            self.assertEqual(result.selection, "youtube-transcript-io-test")
+            self.assertEqual(calls, [("io", "secret")])
+        finally:
+            fetch_transcript.fetch_transcript_from_youtube_transcript_io = original_io
+            fetch_transcript.fetch_transcript_with_api = original_api
+
+    def test_forced_youtube_transcript_io_requires_token(self):
+        original_token = os.environ.pop(fetch_transcript.YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV, None)
+        try:
+            with self.assertRaises(SystemExit) as exc:
+                fetch_transcript.fetch_transcript("abc12345678", method="io", youtube_transcript_io_token="")
+        finally:
+            if original_token is not None:
+                os.environ[fetch_transcript.YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV] = original_token
+
+        self.assertIn("Missing youtube-transcript.io API token", str(exc.exception))
 
 
 if __name__ == "__main__":

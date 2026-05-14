@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -20,6 +21,8 @@ PREFERRED_LANGS = CHINESE_LANGS + ENGLISH_LANGS
 WATCH_URL = "https://www.youtube.com/watch?v={video_id}"
 INNERTUBE_API_URL = "https://www.youtube.com/youtubei/v1/player?key={api_key}"
 INNERTUBE_CONTEXT = {"client": {"clientName": "ANDROID", "clientVersion": "20.10.38"}}
+YOUTUBE_TRANSCRIPT_IO_API_URL = "https://www.youtube-transcript.io/api/transcripts"
+YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV = "YOUTUBE_TRANSCRIPT_IO_API_TOKEN"
 REQUEST_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
     "User-Agent": (
@@ -35,7 +38,7 @@ VIDEO_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{11}")
 class TranscriptResult:
     language_code: str
     language_name: str
-    is_generated: bool
+    is_generated: bool | None
     selection: str
     transcript: list[dict]
 
@@ -184,6 +187,284 @@ def _request_proxies(http_proxy: str = "", https_proxy: str = ""):
     if https_proxy:
         proxies["https"] = https_proxy
     return proxies or None
+
+
+def _decode_jsonish(value):
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith(("{", "[")):
+            return json.loads(stripped)
+    return value
+
+
+def _looks_like_transcript_result(value) -> bool:
+    if isinstance(value, list):
+        return bool(value)
+    if not isinstance(value, dict):
+        return False
+    transcript_keys = {"tracks", "transcript", "segments", "captions", "text"}
+    return bool(transcript_keys.intersection(value))
+
+
+def _service_field(value, *keys, default=None):
+    if not isinstance(value, dict):
+        return default
+    for key in keys:
+        if key in value and value[key] not in (None, ""):
+            return value[key]
+    return default
+
+
+def _label_text(value) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        if "simpleText" in value:
+            return str(value["simpleText"]).strip()
+        runs = value.get("runs")
+        if isinstance(runs, list):
+            return "".join(str(run.get("text", "")) for run in runs if isinstance(run, dict)).strip()
+    return ""
+
+
+def _service_video_id(value) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return str(_service_field(value, "id", "videoId", "video_id", default="")).strip()
+
+
+def _service_results(payload):
+    payload = _decode_jsonish(payload)
+    if isinstance(payload, dict) and "data" in payload and not _looks_like_transcript_result(payload):
+        payload = _decode_jsonish(payload["data"])
+
+    if isinstance(payload, list):
+        return payload
+
+    if isinstance(payload, dict):
+        for key in ("results", "items", "transcripts", "videos"):
+            value = _decode_jsonish(payload.get(key))
+            if isinstance(value, list):
+                return value
+        return [payload]
+
+    return []
+
+
+def _select_service_result(payload, video_id: str):
+    results = _service_results(payload)
+    for result in results:
+        if _service_video_id(result) == video_id:
+            return result
+
+    for result in results:
+        if _looks_like_transcript_result(result):
+            return result
+
+    return results[0] if results else None
+
+
+def _looks_like_segment(value) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if not isinstance(value, dict):
+        return False
+    return any(key in value for key in ("text", "caption", "sentence", "utf8", "start", "duration", "startMs", "tStartMs"))
+
+
+def _looks_like_segment_list(value) -> bool:
+    return isinstance(value, list) and bool(value) and all(_looks_like_segment(item) for item in value[:3])
+
+
+def _service_language_code(*values) -> str:
+    for value in values:
+        code = _service_field(value, "languageCode", "language_code", "lang", "code", default="")
+        if code:
+            return str(code)
+        language = _service_field(value, "language", default="")
+        if isinstance(language, str) and re.fullmatch(r"[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]+)?", language):
+            return language.replace("_", "-")
+    return "unknown"
+
+
+def _service_language_name(*values) -> str:
+    for value in values:
+        name = _label_text(_service_field(value, "languageName", "language_name", "name", "label", default=""))
+        if name:
+            return name
+        language = _service_field(value, "language", default="")
+        if isinstance(language, str) and not re.fullmatch(r"[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]+)?", language):
+            return language
+    return ""
+
+
+def _service_is_generated(*values):
+    for value in values:
+        generated = _service_field(value, "isGenerated", "is_generated", "generated", default=None)
+        if isinstance(generated, bool):
+            return generated
+        if isinstance(generated, str) and generated.lower() in {"true", "false"}:
+            return generated.lower() == "true"
+        if _service_field(value, "kind", default="") == "asr":
+            return True
+    return None
+
+
+def _select_service_track(result):
+    if isinstance(result, list):
+        return result, "direct"
+    if not isinstance(result, dict):
+        return result, "direct"
+
+    tracks = _decode_jsonish(result.get("tracks"))
+    if tracks is None:
+        return result, "direct"
+
+    if isinstance(tracks, dict):
+        tracks = [tracks]
+
+    if _looks_like_segment_list(tracks):
+        return tracks, "direct-tracks"
+
+    if not isinstance(tracks, list) or not tracks:
+        return result, "empty-tracks"
+
+    for language in PREFERRED_LANGS:
+        for track in tracks:
+            if _service_language_code(track) == language:
+                return track, "preferred"
+
+    return tracks[0], "fallback-any-language"
+
+
+def _segment_text(segment) -> str:
+    if isinstance(segment, str):
+        return " ".join(segment.split())
+
+    if not isinstance(segment, dict):
+        return ""
+
+    segments = segment.get("segs")
+    if isinstance(segments, list):
+        text = "".join(str(item.get("utf8", "")) for item in segments if isinstance(item, dict))
+        if text.strip():
+            return " ".join(html.unescape(text).split())
+
+    for key in ("text", "caption", "sentence", "utf8", "value"):
+        if key not in segment:
+            continue
+        value = segment[key]
+        if isinstance(value, list):
+            text = " ".join(str(item) for item in value)
+        else:
+            text = _label_text(value) or str(value)
+        text = " ".join(html.unescape(text).split())
+        if text:
+            return text
+
+    return ""
+
+
+def _parse_time_value(value, default: float = 0) -> float:
+    if value in (None, ""):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().rstrip("s")
+        if not cleaned:
+            return default
+        if ":" in cleaned:
+            parts = cleaned.split(":")
+            try:
+                total = 0.0
+                for part in parts:
+                    total = total * 60 + float(part)
+                return total
+            except ValueError:
+                return default
+        try:
+            return float(cleaned)
+        except ValueError:
+            return default
+    return default
+
+
+def _segment_start(segment) -> float:
+    if not isinstance(segment, dict):
+        return 0
+    for key in ("start", "startTime", "start_time", "offset", "offsetSeconds"):
+        if key in segment:
+            return _parse_time_value(segment[key])
+    for key in ("startMs", "start_ms", "tStartMs", "offsetMs"):
+        if key in segment:
+            return _parse_time_value(segment[key]) / 1000
+    return 0
+
+
+def _segment_duration(segment) -> float:
+    if not isinstance(segment, dict):
+        return 0
+    for key in ("duration", "dur", "durationSeconds"):
+        if key in segment:
+            return _parse_time_value(segment[key])
+    for key in ("durationMs", "duration_ms", "dDurationMs"):
+        if key in segment:
+            return _parse_time_value(segment[key]) / 1000
+    return 0
+
+
+def _segment_source(track):
+    track = _decode_jsonish(track)
+    if isinstance(track, dict):
+        for key in ("transcript", "segments", "captions", "items"):
+            value = _decode_jsonish(track.get(key))
+            if isinstance(value, list):
+                return value
+        if isinstance(track.get("text"), str):
+            return [track]
+    return track
+
+
+def _normalize_service_segments(track) -> list[dict]:
+    source = _segment_source(track)
+    if isinstance(source, str):
+        source = [{"text": source, "start": 0, "duration": 0}]
+    if not isinstance(source, list):
+        return []
+
+    snippets = []
+    for segment in source:
+        text = _segment_text(segment)
+        if not text:
+            continue
+        snippets.append(
+            {
+                "text": text,
+                "start": _segment_start(segment),
+                "duration": _segment_duration(segment),
+            }
+        )
+    return snippets
+
+
+def _normalize_youtube_transcript_io_result(payload, video_id: str) -> TranscriptResult:
+    result = _select_service_result(payload, video_id)
+    if result is None:
+        raise TranscriptFetchError(f"youtube-transcript.io returned no result for video {video_id}")
+
+    track, selection = _select_service_track(result)
+    transcript = _normalize_service_segments(track)
+    if not transcript:
+        raise TranscriptFetchError(f"youtube-transcript.io returned no usable transcript segments for video {video_id}")
+
+    return TranscriptResult(
+        language_code=_service_language_code(track, result),
+        language_name=_service_language_name(track, result),
+        is_generated=_service_is_generated(track, result),
+        selection=f"youtube-transcript-io-{selection}",
+        transcript=transcript,
+    )
 
 
 def _json_value_after_marker(page_html: str, marker: str):
@@ -441,14 +722,103 @@ def fetch_transcript_from_page(video_id: str, *, http_proxy: str = "", https_pro
     )
 
 
+def fetch_transcript_from_youtube_transcript_io(
+    video_id: str,
+    *,
+    api_token: str = "",
+    http_proxy: str = "",
+    https_proxy: str = "",
+) -> TranscriptResult:
+    if not api_token:
+        raise TranscriptFetchError(
+            f"Missing youtube-transcript.io API token. Set {YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV} "
+            "or pass --youtube-transcript-io-token."
+        )
+
+    try:
+        import requests
+        from requests.exceptions import RequestException
+    except ImportError as exc:
+        raise TranscriptFetchError("Missing dependency: requests. Install youtube-transcript-api or requests.") from exc
+
+    proxies = _request_proxies(http_proxy, https_proxy)
+    try:
+        response = requests.post(
+            YOUTUBE_TRANSCRIPT_IO_API_URL,
+            headers={
+                "Authorization": f"Basic {api_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json={"ids": [video_id]},
+            proxies=proxies,
+            timeout=30,
+        )
+    except RequestException as exc:
+        raise TranscriptFetchError(f"Network error while contacting youtube-transcript.io for video {video_id}: {exc}") from exc
+
+    if response.status_code == 429:
+        retry_after = response.headers.get("Retry-After", "")
+        retry_message = f" Retry after {retry_after} seconds." if retry_after else ""
+        raise TranscriptFetchError(f"youtube-transcript.io rate limit reached for video {video_id}.{retry_message}")
+
+    try:
+        response.raise_for_status()
+    except RequestException as exc:
+        detail = response.text.strip()
+        if len(detail) > 500:
+            detail = detail[:500] + "..."
+        raise TranscriptFetchError(
+            f"youtube-transcript.io request failed for video {video_id}: HTTP {response.status_code}. {detail}"
+        ) from exc
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        try:
+            payload = _decode_jsonish(response.text)
+        except json.JSONDecodeError:
+            raise TranscriptFetchError(
+                f"youtube-transcript.io returned non-JSON response for video {video_id}: "
+                f"{response.text.strip()[:500]}"
+            ) from exc
+        if isinstance(payload, str):
+            raise TranscriptFetchError(
+                f"youtube-transcript.io returned non-JSON response for video {video_id}: "
+                f"{payload.strip()[:500]}"
+            ) from exc
+
+    return _normalize_youtube_transcript_io_result(payload, video_id)
+
+
 def fetch_transcript(
     video_id: str,
     *,
     http_proxy: str = "",
     https_proxy: str = "",
     method: str = "auto",
+    youtube_transcript_io_token: str = "",
 ) -> TranscriptResult:
     errors = []
+    api_token = youtube_transcript_io_token or os.environ.get(YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV, "")
+
+    if method in {"auto", "io", "youtube-transcript-io"} and api_token:
+        try:
+            return fetch_transcript_from_youtube_transcript_io(
+                video_id,
+                api_token=api_token,
+                http_proxy=http_proxy,
+                https_proxy=https_proxy,
+            )
+        except TranscriptFetchError as exc:
+            if method in {"io", "youtube-transcript-io"}:
+                raise SystemExit(str(exc)) from exc
+            errors.append(f"youtube-transcript.io: {exc}")
+    elif method in {"io", "youtube-transcript-io"}:
+        raise SystemExit(
+            f"Missing youtube-transcript.io API token. Set {YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV} "
+            "or pass --youtube-transcript-io-token."
+        )
 
     if method in {"auto", "api"}:
         try:
@@ -476,10 +846,18 @@ def main() -> int:
     parser.add_argument("--http-proxy", default="", help="Optional HTTP proxy URL")
     parser.add_argument("--https-proxy", default="", help="Optional HTTPS proxy URL")
     parser.add_argument(
+        "--youtube-transcript-io-token",
+        default=os.environ.get(YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV, ""),
+        help=f"youtube-transcript.io API token. Prefer setting {YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV}.",
+    )
+    parser.add_argument(
         "--method",
-        choices=["auto", "api", "page"],
+        choices=["auto", "io", "youtube-transcript-io", "api", "page"],
         default="auto",
-        help="Transcript fetch method. auto tries the API first, then the YouTube page captionTracks fallback.",
+        help=(
+            "Transcript fetch method. auto tries youtube-transcript.io first when a token is configured, "
+            "then youtube-transcript-api, then the YouTube page captionTracks fallback."
+        ),
     )
     args = parser.parse_args()
 
@@ -497,6 +875,7 @@ def main() -> int:
         http_proxy=args.http_proxy,
         https_proxy=args.https_proxy,
         method=args.method,
+        youtube_transcript_io_token=args.youtube_transcript_io_token,
     )
     safe_language = re.sub(r"[^A-Za-z0-9_.-]+", "-", result.language_code)
     output_path = out_dir / f"{video_id}.transcript.{safe_language}.md"

@@ -1,4 +1,4 @@
 interface:
   display_name: "YouTube Transcript Preview"
-  short_description: "Fetch YouTube captions with a free, network-dependent toolchain"
-  default_prompt: "Use $youtube-transcript-preview to fetch a YouTube transcript with the free subtitle retrieval toolchain, then create a timestamped Chinese preview summary without translating the full transcript. If fetching fails, explain that retrieval depends on the current network environment and caption availability."
+  short_description: "Ask for a youtube-transcript.io token, then fetch YouTube captions"
+  default_prompt: "Use $youtube-transcript-preview to ask the user for a youtube-transcript.io API token first. If the user provides a token, fetch the transcript with scripts/fetch_transcript.py using --method io and the provided token, then create a timestamped Chinese preview summary without translating the full transcript. Do not echo or save the token. If the user says they do not have a token, explain that youtube-transcript.io fetching requires one and ask whether to continue by using the free method to fetch subtitles. Warn that the free method may fail because retrieval depends on the provider, current network environment, rate limits, IP or regional access, and caption availability."
