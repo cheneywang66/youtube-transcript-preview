@@ -75,7 +75,7 @@ def parse_video_id(value: str) -> str:
 
 
 def format_timestamp(seconds: float) -> str:
-    total = int(round(seconds))
+    total = int(seconds)
     hours, remainder = divmod(total, 3600)
     minutes, secs = divmod(remainder, 60)
     if hours:
@@ -500,9 +500,10 @@ def main() -> int:
     )
     safe_language = re.sub(r"[^A-Za-z0-9_.-]+", "-", result.language_code)
     output_path = out_dir / f"{video_id}.transcript.{safe_language}.md"
+    video_url = WATCH_URL.format(video_id=video_id)
     output_path.write_text(
         transcript_to_markdown(
-            args.url,
+            video_url,
             video_id,
             result.language_code,
             result.transcript,

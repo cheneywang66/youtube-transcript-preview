@@ -1,14 +1,19 @@
+import contextlib
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-
-from youtube_transcript_api._errors import NoTranscriptFound
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import fetch_transcript  # noqa: E402
+
+
+class NoTranscriptFound(Exception):
+    pass
 
 
 class FakeTranscript:
@@ -32,7 +37,7 @@ class FakeTranscriptList:
     def find_transcript(self, language_codes):
         if self.preferred is not None:
             return self.preferred
-        raise NoTranscriptFound(self.video_id, language_codes, self)
+        raise NoTranscriptFound()
 
 
 class Snippet:
@@ -90,6 +95,39 @@ class FetchTranscriptTests(unittest.TestCase):
         self.assertEqual(snippets, [{"text": "hello\nworld", "start": 1.2, "duration": 3.4}])
         self.assertIn("[00:01]", markdown)
         self.assertIn("hello world", markdown)
+
+    def test_timestamp_display_matches_link_seconds(self):
+        markdown = fetch_transcript.transcript_to_markdown(
+            "https://www.youtube.com/watch?v=abc12345678",
+            "abc12345678",
+            "en",
+            [{"text": "near a minute", "start": 59.6, "duration": 1}],
+        )
+
+        self.assertIn("[00:59](https://www.youtube.com/watch?v=abc12345678&t=59s)", markdown)
+
+    def test_main_uses_canonical_video_url_in_markdown(self):
+        original_fetch = fetch_transcript.fetch_transcript
+        original_argv = sys.argv
+
+        try:
+            fetch_transcript.fetch_transcript = lambda *args, **kwargs: fetch_transcript.TranscriptResult(
+                language_code="en",
+                language_name="English",
+                is_generated=False,
+                selection="test",
+                transcript=[{"text": "hello", "start": 0, "duration": 1}],
+            )
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                out_dir = Path(tmp_dir)
+                sys.argv = ["fetch_transcript.py", "abc12345678", "--out-dir", str(out_dir)]
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(fetch_transcript.main(), 0)
+                markdown = (out_dir / "abc12345678.transcript.en.md").read_text(encoding="utf-8")
+                self.assertIn("- Source: https://www.youtube.com/watch?v=abc12345678", markdown)
+        finally:
+            fetch_transcript.fetch_transcript = original_fetch
+            sys.argv = original_argv
 
     def test_extracts_player_response_json_with_nested_braces(self):
         page = 'x ytInitialPlayerResponse = {"a":{"b":"} still string"},"c":1}; y'
