@@ -1,4 +1,4 @@
 interface:
   display_name: "YouTube Transcript Preview"
-  short_description: "Fetch and summarize YouTube transcripts"
-  default_prompt: "Use $youtube-transcript-preview to fetch a YouTube transcript and create a timestamped Chinese preview summary without translating the full transcript."
+  short_description: "Fetch YouTube captions with a free, network-dependent toolchain"
+  default_prompt: "Use $youtube-transcript-preview to fetch a YouTube transcript with the free subtitle retrieval toolchain, then create a timestamped Chinese preview summary without translating the full transcript. If fetching fails, explain that retrieval depends on the current network environment and caption availability."

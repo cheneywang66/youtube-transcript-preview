@@ -1,6 +1,6 @@
 ---
 name: youtube-transcript-preview
-description: Fetch YouTube transcripts and create local Markdown files: one raw timestamped transcript and one timestamped Chinese preview summary. Use when the user provides a YouTube link and asks to save, preview, judge, analyze, summarize, inspect, skim, or create notes from a video, especially when they want chapter-style Chinese notes with YouTube timestamp links.
+description: Fetch YouTube transcripts with a free subtitle retrieval tool and create local Markdown files: one raw timestamped transcript and one timestamped Chinese preview summary. Retrieval depends on the current network environment and whether YouTube exposes captions for the video. Use when the user provides a YouTube link and asks to save, preview, judge, analyze, summarize, inspect, skim, or create notes from a video, especially when they want chapter-style Chinese notes with YouTube timestamp links.
 ---
 
 # YouTube Transcript Preview
@@ -44,6 +44,8 @@ description: Fetch YouTube transcripts and create local Markdown files: one raw 
 
 ## Fetching Transcripts
 
+This skill uses a free YouTube subtitle retrieval toolchain. It does not rely on a paid transcript API. Fetching still depends on the current network environment, YouTube availability, IP or regional access, and whether the target video exposes captions.
+
 Run:
 
 ```bash
@@ -55,6 +57,8 @@ Run the command from the skill directory, or resolve `scripts/fetch_transcript.p
 The script prints JSON containing the generated Markdown path, detected language, and video metadata. Use that JSON to decide whether the summary should read a Chinese or non-Chinese raw transcript.
 
 If the `youtube-transcript-api` route is blocked for the current network/IP, the default `--method auto` mode will try the page-based `captionTracks` fallback. To force one route during debugging, pass `--method api` or `--method page`.
+
+If both routes fail because the current network cannot reach YouTube, the IP is blocked or rate-limited, regional access is restricted, or the video has no available captions, explain that the free subtitle retrieval depends on network conditions and suggest retrying from a different network environment.
 
 If `youtube-transcript-api` or `requests` is not installed, install missing dependencies only after getting user approval for network access. Prefer:
 
