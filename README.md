@@ -18,7 +18,7 @@ Philosophy: **Triage information at the speed of thought.** Don't waste 30 minut
    pip install youtube-transcript-api
    ```
 2. Paste a YouTube URL and ask your agent to "summarize this video" or "preview this YouTube link".
-3. The agent will ask where to save the files (default is `youtube-transcript-preview/`).
+3. Unless you provide a directory, the agent saves files to `youtube-transcript-preview/` under the current workspace; if you explicitly ask to choose or confirm the directory first, it will ask before fetching.
 
 ## How to Use
 You can trigger this skill conversationally. Simply tell your agent:
@@ -27,7 +27,7 @@ You can trigger this skill conversationally. Simply tell your agent:
 - "Extract the transcript and create a Chinese note for this: `[URL]`"
 
 The agent handles the rest:
-- **Confirmation**: Verifies the output directory.
+- **Directory selection**: Uses the default output directory unless you provide one or ask to confirm first.
 - **Fetching**: Runs the local script to pull transcript data.
 - **Analysis**: Reads the raw transcript directly, even when it is not Chinese, and generates a Chinese summary.
 

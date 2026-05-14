@@ -57,6 +57,19 @@ class FetchTranscriptTests(unittest.TestCase):
         )
         self.assertEqual(fetch_transcript.parse_video_id("https://www.youtube.com/v/dQw4w9WgXcQ"), "dQw4w9WgXcQ")
 
+    def test_parse_video_id_rejects_invalid_ids_from_urls(self):
+        invalid_values = [
+            "not-a-valid-id",
+            "https://youtu.be/not-a-valid-id",
+            "https://www.youtube.com/watch?v=bad",
+            "https://www.youtube.com/watch?v=too-long-video-id",
+        ]
+
+        for value in invalid_values:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    fetch_transcript.parse_video_id(value)
+
     def test_select_transcript_uses_preferred_languages_first(self):
         preferred = FakeTranscript("en", "English")
         transcript, selection = fetch_transcript._select_transcript(FakeTranscriptList([], preferred=preferred))

@@ -28,6 +28,7 @@ REQUEST_HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     ),
 }
+VIDEO_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{11}")
 
 
 @dataclass
@@ -43,9 +44,15 @@ class TranscriptFetchError(RuntimeError):
     pass
 
 
+def _validate_video_id(video_id: str, original_value: str) -> str:
+    if VIDEO_ID_PATTERN.fullmatch(video_id):
+        return video_id
+    raise ValueError(f"Could not parse a valid YouTube video ID from: {original_value}")
+
+
 def parse_video_id(value: str) -> str:
     value = value.strip()
-    if re.fullmatch(r"[A-Za-z0-9_-]{11}", value):
+    if VIDEO_ID_PATTERN.fullmatch(value):
         return value
 
     parsed = urlparse(value)
@@ -53,13 +60,13 @@ def parse_video_id(value: str) -> str:
     path = parsed.path.strip("/")
 
     if host.endswith("youtu.be") and path:
-        return path.split("/")[0]
+        return _validate_video_id(path.split("/")[0], value)
 
     if "youtube.com" in host:
         if parsed.path == "/watch":
             video_id = parse_qs(parsed.query).get("v", [""])[0]
             if video_id:
-                return video_id
+                return _validate_video_id(video_id, value)
         match = re.search(r"(?:embed|shorts|live|v)/([A-Za-z0-9_-]{11})", parsed.path)
         if match:
             return match.group(1)
