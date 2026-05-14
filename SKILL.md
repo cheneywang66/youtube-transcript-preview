@@ -1,38 +1,36 @@
 ---
 name: youtube-transcript-preview
-description: Fetch, translate, and summarize timestamped YouTube transcripts so a user can quickly decide whether a long YouTube video is worth watching. Use when the user provides a YouTube link and asks to preview, judge, analyze, summarize, inspect, skim, or create a timestamped Chinese note from a long video, especially when they want local Markdown files with transcript and chapter-style summaries.
+description: Fetch YouTube transcripts and create local Markdown files: one raw timestamped transcript and one timestamped Chinese preview summary. Use when the user provides a YouTube link and asks to save, preview, judge, analyze, summarize, inspect, skim, or create notes from a video, especially when they want chapter-style Chinese notes with YouTube timestamp links.
 ---
 
 # YouTube Transcript Preview
 
 ## Workflow
 
-1. Confirm the Markdown output directory before fetching any transcript.
-   - If the user did not already provide a directory, pause and ask this exact question in Chinese:
+1. Decide the Markdown output directory before fetching any transcript.
+   - If the user already provided a directory, use it.
+   - If the user did not provide a directory, create and use `youtube-transcript-preview/` under the current workspace.
+   - If the user explicitly asks to choose or confirm the directory first, pause and ask in Chinese:
 
      `请告诉我这些 Markdown 文件要保存到哪个目录？如果没有指定目录，我会默认保存到当前工作区下的 youtube-transcript-preview/ 文件夹。`
 
-   - If the user has no preference, create and use `youtube-transcript-preview/` under the current workspace.
-   - Use the same chosen directory for the raw transcript, translated transcript, and summary.
+   - Use the same chosen directory for the raw transcript and summary.
    - Do not fetch subtitles before this directory is decided.
    - Do not write to a random home directory.
 
 2. Fetch the timestamped transcript with `scripts/fetch_transcript.py`.
    - Prefer Chinese subtitles in this order: `zh-Hans`, `zh-CN`, `zh`, `zh-Hant`, `zh-TW`.
    - If Chinese is unavailable, fetch English subtitles in this order: `en`, `en-US`, `en-GB`.
+   - If neither Chinese nor English is available, fetch the first available original transcript rather than failing.
+   - The script defaults to `--method auto`: it tries `youtube-transcript-api` first, then falls back to reading `captionTracks` from the YouTube watch page.
    - Save the raw timestamped transcript as Markdown.
    - Include the video URL, video ID, transcript language, and every segment timestamp.
 
-3. If the fetched transcript is English, translate it into Chinese and save a second Markdown file.
-   - Use the currently executing agent/model to read and translate the Markdown transcript directly.
-   - Do not install or call external machine-translation packages or services such as `deep-translator`, `googletrans`, Google Translate, DeepL, or browser-based translation.
-   - Preserve all timestamps and segment ordering.
-   - Translate meaning naturally; do not summarize during translation.
-   - Keep technical terms and named entities accurate.
-
-4. Analyze the Chinese transcript file.
-   - Use the Chinese transcript if available; otherwise use the translated Chinese file.
-   - Produce a chapter-style Markdown summary with timestamps.
+3. Analyze the raw transcript and produce a Chinese preview summary.
+   - Do not translate the full transcript into a separate Chinese transcript file.
+   - If the raw transcript is not Chinese, read it directly and summarize its meaning in Chinese.
+   - Preserve cited timestamps in the summary, but do not preserve every subtitle line.
+   - Write a chapter-style Markdown summary with timestamps to `<video_id>.summary.zh.md`.
    - Group content into coherent sections based on topic shifts, not fixed time intervals.
    - For each chapter include:
      - Start timestamp linked to the YouTube URL with `&t=<seconds>s`
@@ -40,9 +38,8 @@ description: Fetch, translate, and summarize timestamped YouTube transcripts so 
      - Key claims, examples, methods, or arguments
      - Why this section may or may not be worth watching
 
-5. End by telling the user the paths of:
+4. End by telling the user the paths of:
    - Raw transcript Markdown
-   - Translated Chinese transcript Markdown, if created
    - Timestamped chapter summary Markdown
 
 ## Fetching Transcripts
@@ -50,36 +47,42 @@ description: Fetch, translate, and summarize timestamped YouTube transcripts so 
 Run:
 
 ```bash
-python3 /path/to/youtube-transcript-preview/scripts/fetch_transcript.py "YOUTUBE_URL" --out-dir "OUTPUT_DIR"
+python3 scripts/fetch_transcript.py "YOUTUBE_URL" --out-dir "OUTPUT_DIR"
 ```
 
-The script prints JSON containing the generated Markdown path, detected language, and video metadata. Use that JSON to decide whether translation is required.
+Run the command from the skill directory, or resolve `scripts/fetch_transcript.py` relative to this `SKILL.md`.
 
-If `youtube-transcript-api` is not installed, install it only after getting user approval for network access. Prefer:
+The script prints JSON containing the generated Markdown path, detected language, and video metadata. Use that JSON to decide whether the summary should read a Chinese or non-Chinese raw transcript.
+
+If the `youtube-transcript-api` route is blocked for the current network/IP, the default `--method auto` mode will try the page-based `captionTracks` fallback. To force one route during debugging, pass `--method api` or `--method page`.
+
+If `youtube-transcript-api` or `requests` is not installed, install missing dependencies only after getting user approval for network access. Prefer:
 
 ```bash
 python3 -m pip install youtube-transcript-api
 ```
 
-## Translation Policy
+If fetching fails because network access is blocked by the current environment, request permission for network access and retry the same command.
 
-When translation is required, the executing model must perform the translation itself.
+## Non-Chinese Transcript Policy
 
-Read the transcript Markdown in chunks if it is too large for one pass. For each chunk:
+Do not create a full Chinese translation when the fetched transcript is not Chinese.
 
-- Preserve every timestamp link exactly.
-- Translate only the subtitle text after each timestamp.
-- Keep the original line order and Markdown structure.
-- Append translated chunks into `<video_id>.transcript.zh-translated.md`.
+Instead:
 
-Do not solve translation by installing packages, calling web translation APIs, opening browser translators, or running code that delegates the translation to another translation service. The only allowed script in this skill is for fetching transcripts, not translating or summarizing them.
+- Read the raw transcript in chunks if it is too large for one pass.
+- Extract the important claims, examples, arguments, and topic shifts.
+- Write the chapter-style summary in Chinese.
+- Quote or preserve only the timestamps needed for useful navigation.
+- Keep named entities and technical terms accurate.
+
+The only generated Markdown besides the raw transcript should be the Chinese summary.
 
 ## Output Names
 
 Use stable, readable filenames:
 
 - `<video_id>.transcript.<lang>.md`
-- `<video_id>.transcript.zh-translated.md`
 - `<video_id>.summary.zh.md`
 
 Keep all files in the chosen output directory.
@@ -99,4 +102,5 @@ Avoid:
 
 - Generic video-review language
 - Inventing chapter boundaries that are not supported by the transcript
-- Removing timestamps during translation or summarization
+- Translating the full transcript when a summary is enough
+- Removing useful timestamps from the summary

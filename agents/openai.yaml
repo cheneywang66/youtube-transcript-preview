@@ -1,4 +1,4 @@
 interface:
   display_name: "YouTube Transcript Preview"
   short_description: "Fetch and summarize YouTube transcripts"
-  default_prompt: "Use $youtube-transcript-preview to fetch a YouTube transcript, translate if needed, and create a timestamped Chinese preview summary."
+  default_prompt: "Use $youtube-transcript-preview to fetch a YouTube transcript and create a timestamped Chinese preview summary without translating the full transcript."
