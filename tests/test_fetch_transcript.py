@@ -208,11 +208,20 @@ class FetchTranscriptTests(unittest.TestCase):
         self.assertEqual(result.selection, "youtube-transcript-io-fallback-any-language")
         self.assertEqual(result.transcript, [{"text": "hello world", "start": 1.0, "duration": 2.0}])
 
-    def test_fetch_transcript_auto_uses_youtube_transcript_io_when_token_is_configured(self):
+    def test_fetch_transcript_auto_uses_free_api_first_then_falls_back_to_io_when_token_is_configured(self):
         original_io = fetch_transcript.fetch_transcript_from_youtube_transcript_io
         original_api = fetch_transcript.fetch_transcript_with_api
+        original_page = fetch_transcript.fetch_transcript_from_page
 
         calls = []
+
+        def mock_api(*args, **kwargs):
+            calls.append(("api", ""))
+            raise fetch_transcript.TranscriptFetchError("api error")
+
+        def mock_page(*args, **kwargs):
+            calls.append(("page", ""))
+            raise fetch_transcript.TranscriptFetchError("page error")
 
         try:
             fetch_transcript.fetch_transcript_from_youtube_transcript_io = lambda *args, **kwargs: calls.append(
@@ -224,7 +233,8 @@ class FetchTranscriptTests(unittest.TestCase):
                 selection="youtube-transcript-io-test",
                 transcript=[{"text": "hello", "start": 0, "duration": 1}],
             )
-            fetch_transcript.fetch_transcript_with_api = lambda *args, **kwargs: calls.append(("api", ""))
+            fetch_transcript.fetch_transcript_with_api = mock_api
+            fetch_transcript.fetch_transcript_from_page = mock_page
 
             result = fetch_transcript.fetch_transcript(
                 "abc12345678",
@@ -233,10 +243,11 @@ class FetchTranscriptTests(unittest.TestCase):
             )
 
             self.assertEqual(result.selection, "youtube-transcript-io-test")
-            self.assertEqual(calls, [("io", "secret")])
+            self.assertEqual(calls, [("api", ""), ("page", ""), ("io", "secret")])
         finally:
             fetch_transcript.fetch_transcript_from_youtube_transcript_io = original_io
             fetch_transcript.fetch_transcript_with_api = original_api
+            fetch_transcript.fetch_transcript_from_page = original_page
 
     def test_forced_youtube_transcript_io_requires_token(self):
         original_token = os.environ.pop(fetch_transcript.YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV, None)

@@ -802,6 +802,22 @@ def fetch_transcript(
     errors = []
     api_token = youtube_transcript_io_token or os.environ.get(YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV, "")
 
+    if method in {"auto", "api"}:
+        try:
+            return fetch_transcript_with_api(video_id, http_proxy=http_proxy, https_proxy=https_proxy)
+        except TranscriptFetchError as exc:
+            if method == "api":
+                raise SystemExit(str(exc)) from exc
+            errors.append(f"api: {exc}")
+
+    if method in {"auto", "page"}:
+        try:
+            return fetch_transcript_from_page(video_id, http_proxy=http_proxy, https_proxy=https_proxy)
+        except TranscriptFetchError as exc:
+            if method == "page":
+                raise SystemExit(str(exc)) from exc
+            errors.append(f"page: {exc}")
+
     if method in {"auto", "io", "youtube-transcript-io"} and api_token:
         try:
             return fetch_transcript_from_youtube_transcript_io(
@@ -819,22 +835,6 @@ def fetch_transcript(
             f"Missing youtube-transcript.io API token. Set {YOUTUBE_TRANSCRIPT_IO_TOKEN_ENV} "
             "or pass --youtube-transcript-io-token."
         )
-
-    if method in {"auto", "api"}:
-        try:
-            return fetch_transcript_with_api(video_id, http_proxy=http_proxy, https_proxy=https_proxy)
-        except TranscriptFetchError as exc:
-            if method == "api":
-                raise SystemExit(str(exc)) from exc
-            errors.append(f"api: {exc}")
-
-    if method in {"auto", "page"}:
-        try:
-            return fetch_transcript_from_page(video_id, http_proxy=http_proxy, https_proxy=https_proxy)
-        except TranscriptFetchError as exc:
-            if method == "page":
-                raise SystemExit(str(exc)) from exc
-            errors.append(f"page: {exc}")
 
     raise SystemExit("Could not fetch a transcript.\n" + "\n\n".join(errors))
 
@@ -855,8 +855,8 @@ def main() -> int:
         choices=["auto", "io", "youtube-transcript-io", "api", "page"],
         default="auto",
         help=(
-            "Transcript fetch method. auto tries youtube-transcript.io first when a token is configured, "
-            "then youtube-transcript-api, then the YouTube page captionTracks fallback."
+            "Transcript fetch method. auto tries free methods first (youtube-transcript-api, "
+            "then the YouTube page captionTracks fallback), and falls back to youtube-transcript.io when a token is configured."
         ),
     )
     args = parser.parse_args()

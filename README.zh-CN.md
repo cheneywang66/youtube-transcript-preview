@@ -59,7 +59,7 @@ python3 scripts/fetch_transcript.py "https://youtu.be/VIDEO_ID" --out-dir ./out
 
 - `--method io` 或 `--method youtube-transcript-io`：强制使用托管 API。
 - `--youtube-transcript-io-token`：为本次命令传入 token；也可以用 `YOUTUBE_TRANSCRIPT_IO_API_TOKEN` 环境变量。
-- `--method auto`：仅在你明确选择使用免费方式获取字幕时使用；配置 token 时会先尝试 `youtube-transcript.io`，失败后再尝试免费路径。免费方式可能失败。
+- `--method auto`：仅在你明确选择使用免费方式获取字幕时使用；配置 token 时会先尝试免费路径，失败后再回退到 `youtube-transcript.io`。免费方式可能失败。
 - `--method api`：强制使用 `youtube-transcript-api` 包。
 - `--method page`：强制使用 YouTube 页面 `captionTracks` 兜底路径。
 

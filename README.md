@@ -59,7 +59,7 @@ python3 scripts/fetch_transcript.py "https://youtu.be/VIDEO_ID" --out-dir ./out
 
 - `--method io` or `--method youtube-transcript-io` forces the managed API.
 - `--youtube-transcript-io-token` passes a token for this command; `YOUTUBE_TRANSCRIPT_IO_API_TOKEN` can also be used.
-- `--method auto` is for explicitly chosen free subtitle retrieval; when a token is configured, it tries `youtube-transcript.io` first, then free retrieval routes. Free retrieval may fail.
+- `--method auto` is for explicitly chosen free subtitle retrieval; when a token is configured, it tries free retrieval routes first, then falls back to `youtube-transcript.io`. Free retrieval may fail.
 - `--method api` forces the `youtube-transcript-api` package.
 - `--method page` forces the YouTube page `captionTracks` fallback.
 
