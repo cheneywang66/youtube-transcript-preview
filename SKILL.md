@@ -1,24 +1,13 @@
 ---
 name: youtube-transcript-preview
-description: "Ask the user for a youtube-transcript.io API token first, fetch YouTube transcripts with youtube-transcript.io when the token is provided, and create local Markdown files: one raw timestamped transcript and one timestamped Chinese preview summary. It can use free subtitle retrieval tools only if the user explicitly chooses that path, and should warn that free retrieval may fail. Retrieval depends on the provider, current network environment, and whether YouTube exposes captions for the video. Use when the user provides a YouTube link and asks to save, preview, judge, analyze, summarize, inspect, skim, or create notes from a video, especially when they want chapter-style Chinese notes with YouTube timestamp links."
+description: "Fetch YouTube transcripts with free subtitle retrieval first, optionally fall back to youtube-transcript.io when the user provides an API token, and create local Markdown files: one raw timestamped transcript and one timestamped Chinese preview summary. Warn that free retrieval may fail because of network/IP restrictions, regional access, or unavailable captions. Retrieval depends on the provider, current network environment, and whether YouTube exposes captions for the video. Use when the user provides a YouTube link and asks to save, preview, judge, analyze, summarize, inspect, skim, or create notes from a video, especially when they want chapter-style Chinese notes with YouTube timestamp links."
 ---
 
 # YouTube Transcript Preview
 
 ## Workflow
 
-1. Ask for a `youtube-transcript.io` API token before fetching any transcript.
-   - If the user already provided a token in the current conversation, use it for this request.
-   - If the user did not provide a token, pause before fetching and ask in Chinese:
-
-     `请提供你的 youtube-transcript.io API token，我会优先用 https://www.youtube-transcript.io/api/transcripts 拉取字幕。这个 token 只会用于本次请求，不会写入文件或最终结果。`
-
-   - If the user provides a token, fetch with `youtube-transcript.io` by passing `--method io` and the token to `scripts/fetch_transcript.py`.
-   - Do not echo the token in the final answer, generated Markdown, or logs intended for the user.
-   - Do not fetch subtitles before the token question is resolved.
-   - If the user explicitly says they do not have a token, explain that `youtube-transcript.io` fetching requires a token and ask whether they want to continue by using the free method to fetch subtitles. Warn that the free method may fail because of network/IP restrictions, regional access, or unavailable captions.
-
-2. Decide the Markdown output directory before fetching any transcript.
+1. Decide the Markdown output directory before fetching any transcript.
    - If the user already provided a directory, use it.
    - If the user did not provide a directory, pause before fetching and ask in Chinese:
 
@@ -30,16 +19,19 @@ description: "Ask the user for a youtube-transcript.io API token first, fetch Yo
    - Do not fetch subtitles before this directory is decided.
    - Do not write to a random home directory.
 
-3. Fetch the timestamped transcript with `scripts/fetch_transcript.py`.
+2. Fetch the timestamped transcript with `scripts/fetch_transcript.py`.
    - Prefer Chinese subtitles in this order: `zh-Hans`, `zh-CN`, `zh`, `zh-Hant`, `zh-TW`.
    - If Chinese is unavailable, fetch English subtitles in this order: `en`, `en-US`, `en-GB`.
    - If neither Chinese nor English is available, fetch the first available original transcript rather than failing.
-   - If the user provided a `youtube-transcript.io` token, force `youtube-transcript.io` with `--method io --youtube-transcript-io-token "TOKEN"`.
-   - If the user explicitly chooses to use the free method to fetch subtitles, use `--method auto`.
+   - Use `--method auto` by default. In `auto` mode the script tries free methods first: `youtube-transcript-api`, then the YouTube page `captionTracks` fallback.
+   - If the user already provided a `youtube-transcript.io` token in the current conversation, pass it with `--youtube-transcript-io-token "TOKEN"` while still using `--method auto`; the token is used only if the free methods fail.
+   - If the user explicitly asks to force `youtube-transcript.io`, use `--method io --youtube-transcript-io-token "TOKEN"` and ask for the token first if it was not provided.
+   - If `--method auto` fails and no token is available, explain that free retrieval failed and ask whether the user wants to provide a `youtube-transcript.io` API token for a managed API retry. Warn that managed API access requires a token and may be rate-limited.
+   - Do not echo the token in the final answer, generated Markdown, or logs intended for the user.
    - Save the raw timestamped transcript as Markdown.
    - Include the video URL, video ID, transcript language, and every segment timestamp.
 
-4. Analyze the raw transcript and produce a Chinese preview summary.
+3. Analyze the raw transcript and produce a Chinese preview summary.
    - Do not translate the full transcript into a separate Chinese transcript file.
    - If the raw transcript is not Chinese, read it directly and summarize its meaning in Chinese.
    - Preserve cited timestamps in the summary, but do not preserve every subtitle line.
@@ -51,31 +43,37 @@ description: "Ask the user for a youtube-transcript.io API token first, fetch Yo
      - Key claims, examples, methods, or arguments
      - Why this section may or may not be worth watching
 
-5. End by telling the user the paths of:
+4. End by telling the user the paths of:
    - Raw transcript Markdown
    - Timestamped chapter summary Markdown
 
 ## Fetching Transcripts
 
-This skill can use the managed `youtube-transcript.io` API when `YOUTUBE_TRANSCRIPT_IO_API_TOKEN` is configured. Without that token, or if the managed API fails in `auto` mode, it can use free methods to fetch subtitles. Free subtitle retrieval may fail, and fetching still depends on provider availability, the current network environment, YouTube availability, IP or regional access, and whether the target video exposes captions.
+This skill uses free methods first in `auto` mode: the `youtube-transcript-api` package, then a page-based `captionTracks` fallback. If those free methods fail and a `youtube-transcript.io` token is configured or provided, `auto` falls back to the managed API. Free subtitle retrieval may fail, and fetching still depends on provider availability, the current network environment, YouTube availability, IP or regional access, and whether the target video exposes captions.
 
-If the user provided a `youtube-transcript.io` token, force the managed API for the fetch:
+Default fetch command:
 
 ```bash
-python3 scripts/fetch_transcript.py "YOUTUBE_URL" --out-dir "OUTPUT_DIR" --method io --youtube-transcript-io-token "TOKEN"
+python3 scripts/fetch_transcript.py "YOUTUBE_URL" --out-dir "OUTPUT_DIR" --method auto
+```
+
+If the user provided a `youtube-transcript.io` token, keep `auto` mode and pass the token as a fallback credential:
+
+```bash
+python3 scripts/fetch_transcript.py "YOUTUBE_URL" --out-dir "OUTPUT_DIR" --method auto --youtube-transcript-io-token "TOKEN"
 ```
 
 Run the command from the skill directory, or resolve `scripts/fetch_transcript.py` relative to this `SKILL.md`.
 
 The script prints JSON containing the generated Markdown path, detected language, and video metadata. Use that JSON to decide whether the summary should read a Chinese or non-Chinese raw transcript.
 
-For `youtube-transcript.io`, set the token in the environment:
+For fallback use with `youtube-transcript.io`, the token can also be set in the environment:
 
 ```bash
 export YOUTUBE_TRANSCRIPT_IO_API_TOKEN="your-api-token"
 ```
 
-If the token is already in `YOUTUBE_TRANSCRIPT_IO_API_TOKEN`, the equivalent forced command is:
+If the user explicitly asks to force `youtube-transcript.io`, use:
 
 ```bash
 python3 scripts/fetch_transcript.py "YOUTUBE_URL" --out-dir "OUTPUT_DIR" --method io
@@ -86,6 +84,8 @@ To force one route during debugging:
 - `--method io` or `--method youtube-transcript-io`: force `youtube-transcript.io`.
 - `--method api`: force the `youtube-transcript-api` package.
 - `--method page`: force the page-based `captionTracks` fallback.
+
+In default `--method auto` mode, the route order is `api`, `page`, then `youtube-transcript.io` only when a token is available.
 
 If the managed API returns `429`, explain that `youtube-transcript.io` is rate-limited and the response may include a `Retry-After` delay.
 

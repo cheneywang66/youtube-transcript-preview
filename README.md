@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-Fetch and summarize timestamped YouTube transcripts, so you can quickly decide whether a long video is worth watching. The workflow asks for your `youtube-transcript.io` API token first; when you provide one, the fetcher forces its managed REST API for transcript retrieval. Retrieval still depends on the provider, network environment, YouTube availability, and whether the video exposes captions.
+Fetch and summarize timestamped YouTube transcripts, so you can quickly decide whether a long video is worth watching. The default workflow tries free subtitle routes first; if they fail and you provide a `youtube-transcript.io` API token, the fetcher falls back to its managed REST API. Retrieval still depends on the provider, network environment, YouTube availability, and whether the video exposes captions.
 
 Philosophy: **Triage information at the speed of thought.** Don't waste 30 minutes on a video that could have been summarized in 30 seconds.
 
@@ -14,8 +14,8 @@ Philosophy: **Triage information at the speed of thought.** Don't waste 30 minut
 
 ## Quick Start
 1. Paste a YouTube URL and ask your agent to "summarize this video" or "preview this YouTube link".
-2. The agent asks for your `youtube-transcript.io` API token first; if you provide one, it fetches from `https://www.youtube-transcript.io/api/transcripts`.
-3. For direct CLI use, you can set the token ahead of time:
+2. The agent first tries free subtitle routes, including `youtube-transcript-api` and the YouTube page `captionTracks` fallback.
+3. If you want `youtube-transcript.io` fallback after free routes fail, provide a token; for direct CLI use, you can set it ahead of time:
    ```bash
    export YOUTUBE_TRANSCRIPT_IO_API_TOKEN="your-api-token"
    ```
@@ -34,7 +34,8 @@ You can trigger this skill conversationally. Simply tell your agent:
 - "Extract the transcript and create a Chinese note for this: `[URL]`"
 
 The agent handles the rest:
-- **Token prompt**: Asks for your `youtube-transcript.io` API token first; when supplied, it forces the managed API.
+- **Free-first retrieval**: Tries `youtube-transcript-api` first, then the YouTube page `captionTracks` fallback.
+- **Managed API fallback**: Falls back to `youtube-transcript.io` when free routes fail and you provide a token.
 - **Directory selection**: Uses the default output directory unless you provide one or ask to confirm first.
 - **Fetching**: Runs the local script to pull transcript data.
 - **Analysis**: Reads the raw transcript directly, even when it is not Chinese, and generates a Chinese summary.
@@ -45,9 +46,9 @@ All results are saved as Markdown in your chosen directory:
 - `<video_id>.summary.zh.md` — The final chapter-style summary
 
 ## How It Works
-1. **Ask for Token First**: When the skill is triggered, the agent asks for a `youtube-transcript.io` API token. If supplied, this request forces the managed API.
-2. **Managed API Fetch**: A Python script (`scripts/fetch_transcript.py`) sends `POST /api/transcripts` with the video ID and normalizes the returned transcript tracks into timestamped Markdown.
-3. **Free Subtitle Retrieval**: If you explicitly say you do not have a token and want to continue, the script can still use the free `youtube-transcript-api` package and caption tracks exposed on the YouTube watch page. It prefers Chinese, then English, and then tries any available original transcript. Free retrieval may fail because of network/IP restrictions, regional access, or unavailable captions.
+1. **Free Subtitle Retrieval**: The script first uses the free `youtube-transcript-api` package and caption tracks exposed on the YouTube watch page. It prefers Chinese, then English, and then tries any available original transcript. Free retrieval may fail because of network/IP restrictions, regional access, or unavailable captions.
+2. **Managed API Fallback**: If free routes fail and a token is configured, the Python script (`scripts/fetch_transcript.py`) sends the video ID to `POST /api/transcripts` and normalizes returned transcript tracks into timestamped Markdown.
+3. **Forced Managed API**: If you explicitly want `youtube-transcript.io`, use `--method io` to force the managed API.
 4. **On-the-fly Processing**: To keep previews fast and token-efficient, non-Chinese transcripts are summarized directly in Chinese instead of being fully translated first.
 5. **Local-First Output**: Generated Markdown stays in your workspace. When the managed API is enabled, the video ID is sent to `youtube-transcript.io` for transcript retrieval.
 6. **Network-Dependent**: The current environment must be able to access the configured provider and/or YouTube caption data. Retrieval may fail when the network is blocked, an IP is rate-limited, regional access is restricted, or the video has no captions.
